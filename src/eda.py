@@ -47,25 +47,31 @@ class EDAAnalyzer:
         Returns:
             dict: Data summary statistics
         """
+        self.df['year'] = self.df['InvoiceDate'].dt.year
+        self.df['month'] = self.df['InvoiceDate'].dt.month
+        self.df['quarter'] = self.df['InvoiceDate'].dt.quarter
+        self.df['day_of_week'] = self.df['InvoiceDate'].dt.dayofweek
+        self.df['is_weekend'] = self.df['day_of_week'] >= 5
+        
         summary = {
             'basic_info': {
                 'total_records': len(self.df),
-                'total_revenue': self.df['price'].sum(),
+                'total_revenue': (self.df['Quantity'] * self.df['UnitPrice']).sum(),
                 'date_range': {
-                    'start': self.df['date'].min(),
-                    'end': self.df['date'].max(),
-                    'days': (self.df['date'].max() - self.df['date'].min()).days
+                    'start': self.df['InvoiceDate'].min(),
+                    'end': self.df['InvoiceDate'].max(),
+                    'days': (self.df['InvoiceDate'].max() - self.df['InvoiceDate'].min()).days
                 },
-                'unique_customers': self.df['customer_id'].nunique(),
-                'unique_countries': self.df['country'].nunique(),
-                'unique_invoices': self.df['invoice'].nunique()
+                'unique_customers': self.df['CustomerID'].nunique(),
+                'unique_countries': self.df['Country'].nunique(),
+                'unique_invoices': self.df['InvoiceNo'].nunique()
             },
             'revenue_stats': {
-                'mean_transaction': self.df['price'].mean(),
-                'median_transaction': self.df['price'].median(),
-                'std_transaction': self.df['price'].std(),
-                'min_transaction': self.df['price'].min(),
-                'max_transaction': self.df['price'].max()
+                'mean_transaction': (self.df['Quantity'] * self.df['UnitPrice']).mean(),
+                'median_transaction': (self.df['Quantity'] * self.df['UnitPrice']).median(),
+                'std_transaction': (self.df['Quantity'] * self.df['UnitPrice']).std(),
+                'min_transaction': (self.df['Quantity'] * self.df['UnitPrice']).min(),
+                'max_transaction': (self.df['Quantity'] * self.df['UnitPrice']).max()
             },
             'missing_data': self.df.isnull().sum().to_dict()
         }
@@ -82,18 +88,15 @@ class EDAAnalyzer:
         Returns:
             DataFrame: Country revenue analysis
         """
-        country_revenue = self.df.groupby('country').agg({
-            'price': ['sum', 'mean', 'count'],
-            'customer_id': 'nunique',
-            'date': ['min', 'max']
-        }).round(2)
-        
-        country_revenue.columns = ['total_revenue', 'avg_transaction', 'total_transactions', 
-                                 'unique_customers', 'first_transaction', 'last_transaction']
-        
-        country_revenue = country_revenue.sort_values('total_revenue', ascending=False)
-        country_revenue['revenue_percentage'] = (country_revenue['total_revenue'] / 
-                                               country_revenue['total_revenue'].sum() * 100).round(2)
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        country_revenue = self.df.groupby('Country').apply(lambda x: (x['Quantity'] * x['UnitPrice']).sum()).sort_values(ascending=False)
+        country_revenue = country_revenue.to_frame('total_revenue')
+        country_revenue['avg_transaction'] = self.df.groupby('Country').apply(lambda x: (x['Quantity'] * x['UnitPrice']).mean())
+        country_revenue['total_transactions'] = self.df.groupby('Country').size()
+        country_revenue['unique_customers'] = self.df.groupby('Country')['CustomerID'].nunique()
+        country_revenue['first_transaction'] = self.df.groupby('Country')['InvoiceDate'].min()
+        country_revenue['last_transaction'] = self.df.groupby('Country')['InvoiceDate'].max()
+        country_revenue['revenue_percentage'] = (country_revenue['total_revenue'] / country_revenue['total_revenue'].sum() * 100).round(2)
         
         return country_revenue.head(top_n)
     
@@ -104,16 +107,19 @@ class EDAAnalyzer:
         Returns:
             dict: Temporal analysis results
         """
-        # Monthly revenue trends
-        monthly_revenue = self.df.groupby('month_year')['price'].agg(['sum', 'count', 'mean']).reset_index()
-        monthly_revenue.columns = ['month_year', 'total_revenue', 'transaction_count', 'avg_transaction']
+        # Monthly trends
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        monthly_revenue = revenue.groupby([self.df['year'], self.df['month']]).sum().reset_index()
+        monthly_revenue.columns = ['year', 'month', 'total_revenue']
+        monthly_revenue['transaction_count'] = self.df.groupby([self.df['year'], self.df['month']]).size()
+        monthly_revenue['avg_transaction'] = self.df.groupby([self.df['year'], self.df['month']]).apply(lambda x: (x['Quantity'] * x['UnitPrice']).mean())
         
         # Daily patterns
-        daily_patterns = self.df.groupby('day_of_week')['price'].agg(['sum', 'count', 'mean'])
+        daily_patterns = revenue.groupby(self.df['day_of_week']).agg(['sum', 'count', 'mean'])
         daily_patterns.index = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         
         # Quarterly patterns
-        quarterly_revenue = self.df.groupby('quarter')['price'].agg(['sum', 'count', 'mean'])
+        quarterly_revenue = revenue.groupby(self.df['quarter']).agg(['sum', 'count', 'mean'])
         
         return {
             'monthly_trends': monthly_revenue,
@@ -128,23 +134,20 @@ class EDAAnalyzer:
         Returns:
             DataFrame: Customer analysis
         """
-        customer_analysis = self.df.groupby('customer_id').agg({
-            'price': ['sum', 'mean', 'count'],
-            'date': ['min', 'max'],
-            'country': 'first',
-            'times_viewed': 'mean'
-        }).round(2)
-        
-        customer_analysis.columns = ['total_spent', 'avg_transaction', 'total_transactions',
-                                   'first_purchase', 'last_purchase', 'country', 'avg_views']
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        customer_analysis = self.df.groupby('CustomerID').apply(lambda x: (x['Quantity'] * x['UnitPrice']).sum()).to_frame('total_spent')
+        customer_analysis['avg_transaction'] = self.df.groupby('CustomerID').apply(lambda x: (x['Quantity'] * x['UnitPrice']).mean())
+        customer_analysis['total_transactions'] = self.df.groupby('CustomerID').size()
+        customer_analysis['first_purchase'] = self.df.groupby('CustomerID')['InvoiceDate'].min()
+        customer_analysis['last_purchase'] = self.df.groupby('CustomerID')['InvoiceDate'].max()
+        customer_analysis['country'] = self.df.groupby('CustomerID')['Country'].first()
+        customer_analysis['avg_views'] = self.df.groupby('CustomerID')['times_viewed'].mean()
         
         # Calculate customer lifetime
-        customer_analysis['days_active'] = (customer_analysis['last_purchase'] - 
-                                          customer_analysis['first_purchase']).dt.days
+        customer_analysis['days_active'] = (customer_analysis['last_purchase'] - customer_analysis['first_purchase']).dt.days
         
         # Customer value segmentation
-        customer_analysis['customer_value'] = pd.qcut(customer_analysis['total_spent'], 
-                                                     q=4, labels=['Low', 'Medium', 'High', 'Premium'])
+        customer_analysis['customer_value'] = pd.qcut(customer_analysis['total_spent'], q=4, labels=['Low', 'Medium', 'High', 'Premium'])
         
         return customer_analysis
     
@@ -158,7 +161,8 @@ class EDAAnalyzer:
         Returns:
             list: Top country names
         """
-        country_revenue = self.df.groupby('country')['price'].sum().sort_values(ascending=False)
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        country_revenue = self.df.groupby('Country').apply(lambda x: (x['Quantity'] * x['UnitPrice']).sum()).sort_values(ascending=False)
         return country_revenue.head(n).index.tolist()
     
     def create_visualization_suite(self, output_dir: str = "../reports/figures/"):
@@ -195,10 +199,10 @@ class EDAAnalyzer:
         monthly_data = temporal_data['monthly_trends']
         
         plt.figure(figsize=(14, 8))
-        plt.plot(monthly_data['month_year'].astype(str), monthly_data['total_revenue'], 
+        plt.plot(monthly_data['month'], monthly_data['total_revenue'], 
                 marker='o', linewidth=2, markersize=6)
         plt.title('Monthly Revenue Trends', fontsize=16, fontweight='bold')
-        plt.xlabel('Month-Year')
+        plt.xlabel('Month')
         plt.ylabel('Total Revenue')
         plt.xticks(rotation=45)
         plt.grid(True, alpha=0.3)
@@ -210,14 +214,14 @@ class EDAAnalyzer:
         plt.figure(figsize=(14, 6))
         
         plt.subplot(1, 2, 1)
-        plt.hist(self.df['price'], bins=50, alpha=0.7, edgecolor='black')
+        plt.hist((self.df['Quantity'] * self.df['UnitPrice']), bins=50, alpha=0.7, edgecolor='black')
         plt.title('Transaction Amount Distribution')
         plt.xlabel('Transaction Amount')
         plt.ylabel('Frequency')
         plt.yscale('log')
         
         plt.subplot(1, 2, 2)
-        plt.boxplot(self.df['price'])
+        plt.boxplot((self.df['Quantity'] * self.df['UnitPrice']))
         plt.title('Transaction Amount Box Plot')
         plt.ylabel('Transaction Amount')
         
@@ -261,13 +265,13 @@ class EDAAnalyzer:
         
         # 6. Revenue Heatmap by Country and Month
         top_10_countries = self.identify_top_countries(10)
-        country_month_pivot = self.df[self.df['country'].isin(top_10_countries)].pivot_table(
-            values='price', index='country', columns='month_year', aggfunc='sum', fill_value=0)
+        country_month_pivot = self.df[self.df['Country'].isin(top_10_countries)].pivot_table(
+            values='UnitPrice', index='Country', columns='month', aggfunc='sum', fill_value=0)
         
         plt.figure(figsize=(16, 10))
         sns.heatmap(country_month_pivot, annot=False, cmap='YlOrRd', fmt='.0f')
         plt.title('Revenue Heatmap: Top 10 Countries by Month', fontsize=16, fontweight='bold')
-        plt.xlabel('Month-Year')
+        plt.xlabel('Month')
         plt.ylabel('Country')
         plt.tight_layout()
         plt.savefig(f"{output_dir}revenue_heatmap.png", dpi=300, bbox_inches='tight')
@@ -303,7 +307,8 @@ class EDAAnalyzer:
         results = {}
         
         # H2: Top 10 countries contribute to 80% of revenue
-        country_revenue = self.df.groupby('country')['price'].sum().sort_values(ascending=False)
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        country_revenue = self.df.groupby('Country').apply(lambda x: (x['Quantity'] * x['UnitPrice']).sum()).sort_values(ascending=False)
         total_revenue = country_revenue.sum()
         top_10_revenue = country_revenue.head(10).sum()
         top_10_percentage = (top_10_revenue / total_revenue) * 100
@@ -313,9 +318,10 @@ class EDAAnalyzer:
             'passes_80_20_rule': top_10_percentage >= 80
         }
         
-        # H5: Weekend vs weekday patterns
-        weekend_revenue = self.df[self.df['is_weekend']]['price'].sum()
-        weekday_revenue = self.df[~self.df['is_weekend']]['price'].sum()
+        # H5: Weekend vs weekday analysis
+        revenue = self.df['Quantity'] * self.df['UnitPrice']
+        weekend_revenue = revenue[self.df['is_weekend']].sum()
+        weekday_revenue = revenue[~self.df['is_weekend']].sum()
         
         results['weekend_vs_weekday'] = {
             'weekend_revenue': weekend_revenue,
