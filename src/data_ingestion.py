@@ -258,19 +258,63 @@ class DataIngestion:
         
         return summary
 
-def load_retail_data(data_directory: str) -> Tuple[pd.DataFrame, Dict]:
+def load_retail_data(data_path: str) -> pd.DataFrame:
     """
-    Main function to load and process retail data
+    Load retail data from Excel file for AAVAIL Revenue Prediction
     
     Args:
-        data_directory: Path to data directory
+        data_path: Path to Excel file (Online Retail.xlsx)
+        
+    Returns:
+        DataFrame: Processed retail data
+    """
+    try:
+        # Load Excel file
+        logger.info(f"Loading data from: {data_path}")
+        df = pd.read_excel(data_path, sheet_name=0)
+        
+        # Basic data processing
+        logger.info(f"Raw data shape: {df.shape}")
+        
+        # Convert InvoiceDate to datetime
+        df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
+        
+        # Remove rows with missing CustomerID for most analyses (keep for some)
+        logger.info(f"Missing CustomerIDs: {df['CustomerID'].isnull().sum()}")
+        
+        # Basic data quality checks
+        logger.info(f"Date range: {df['InvoiceDate'].min()} to {df['InvoiceDate'].max()}")
+        logger.info(f"Countries: {df['Country'].nunique()}")
+        logger.info(f"Unique customers: {df['CustomerID'].nunique()}")
+        
+        return df
+        
+    except Exception as e:
+        logger.error(f"Error loading retail data: {str(e)}")
+        raise Exception(f"Failed to load retail data from {data_path}: {str(e)}")
+
+
+def load_retail_data_with_summary(data_path: str) -> Tuple[pd.DataFrame, Dict]:
+    """
+    Load retail data and return with summary statistics
+    
+    Args:
+        data_path: Path to Excel file
         
     Returns:
         tuple: (processed_dataframe, summary_statistics)
     """
-    ingestion = DataIngestion(data_directory)
-    df = ingestion.load_all_data()
-    summary = ingestion.get_data_summary(df)
+    df = load_retail_data(data_path)
+    
+    # Generate summary statistics
+    summary = {
+        'total_records': len(df),
+        'date_range': f"{df['InvoiceDate'].min()} to {df['InvoiceDate'].max()}",
+        'countries': df['Country'].nunique(),
+        'unique_customers': df['CustomerID'].nunique(),
+        'missing_customer_ids': df['CustomerID'].isnull().sum(),
+        'total_revenue': (df['Quantity'] * df['UnitPrice']).sum()
+    }
     
     return df, summary
 

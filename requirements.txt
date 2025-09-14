@@ -8,6 +8,7 @@ plotly>=5.0.0
 openpyxl>=3.0.7
 requests>=2.25.0
 flask>=2.0.0
+flask-cors>=3.0.0
 docker>=5.0.0
 pytest>=6.0.0
 statsmodels>=0.13.0
