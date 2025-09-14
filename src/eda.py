@@ -109,10 +109,21 @@ class EDAAnalyzer:
         """
         # Monthly trends
         revenue = self.df['Quantity'] * self.df['UnitPrice']
+        
+        # Create monthly aggregations properly
+        monthly_agg = self.df.groupby([self.df['year'], self.df['month']]).agg({
+            'Quantity': 'sum',
+            'UnitPrice': 'mean',
+            'InvoiceNo': 'count'
+        }).reset_index()
+        
+        # Calculate revenue for the aggregated data
         monthly_revenue = revenue.groupby([self.df['year'], self.df['month']]).sum().reset_index()
         monthly_revenue.columns = ['year', 'month', 'total_revenue']
-        monthly_revenue['transaction_count'] = self.df.groupby([self.df['year'], self.df['month']]).size()
-        monthly_revenue['avg_transaction'] = self.df.groupby([self.df['year'], self.df['month']]).apply(lambda x: (x['Quantity'] * x['UnitPrice']).mean())
+        
+        # Add additional metrics
+        monthly_revenue['transaction_count'] = monthly_agg['InvoiceNo'].values
+        monthly_revenue['avg_transaction'] = monthly_revenue['total_revenue'] / monthly_revenue['transaction_count']
         
         # Daily patterns
         daily_patterns = revenue.groupby(self.df['day_of_week']).agg(['sum', 'count', 'mean'])
